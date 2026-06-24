@@ -21,9 +21,9 @@ const handleLogout = async () => {
 }
 
 const navItems = [
-  { to: '/',           icon: '⬡', label: 'Dashboard'  },
+  { to: '/', icon: '⬡', label: 'Dashboard' },
   { to: '/access-log', icon: '≡', label: 'Access Logs' },
-  { to: '/users',      icon: '◈', label: 'Users'       },
+  { to: '/users', icon: '◈', label: 'Users' },
 ]
 </script>
 
@@ -42,13 +42,7 @@ const navItems = [
 
       <!-- Nav links -->
       <nav class="sidebar-nav">
-        <RouterLink
-          v-for="item in navItems"
-          :key="item.to"
-          :to="item.to"
-          class="sidebar-link"
-          :title="item.label"
-        >
+        <RouterLink v-for="item in navItems" :key="item.to" :to="item.to" class="sidebar-link" :title="item.label">
           <span class="nav-icon">{{ item.icon }}</span>
           <span class="nav-label">{{ item.label }}</span>
         </RouterLink>
@@ -64,13 +58,8 @@ const navItems = [
       </div>
 
       <!-- Logout -->
-      <button
-        class="sidebar-logout"
-        @click="handleLogout"
-        :disabled="isLoggingOut"
-        :class="{ 'is-loading': isLoggingOut }"
-        title="Logout"
-      >
+      <button class="sidebar-logout" @click="handleLogout" :disabled="isLoggingOut"
+        :class="{ 'is-loading': isLoggingOut }" title="Logout">
         <span class="logout-icon">⏻</span>
         <span class="nav-label">{{ isLoggingOut ? 'Logging out...' : 'Logout' }}</span>
       </button>
@@ -85,18 +74,10 @@ const navItems = [
     <header v-if="showNav" class="bottom-nav">
       <div class="wrapper">
         <nav>
-          <RouterLink
-            v-for="item in navItems"
-            :key="item.to"
-            :to="item.to"
-          >{{ item.icon }} {{ item.label }}</RouterLink>
-          <button
-            class="nav-logout"
-            @click="handleLogout"
-            :disabled="isLoggingOut"
-            :class="{ 'is-loading': isLoggingOut }"
-            title="Logout"
-          >
+          <RouterLink v-for="item in navItems" :key="item.to" :to="item.to">{{ item.icon }} {{ item.label }}
+          </RouterLink>
+          <button class="nav-logout" @click="handleLogout" :disabled="isLoggingOut"
+            :class="{ 'is-loading': isLoggingOut }" title="Logout">
             <span class="logout-icon">⏻</span>
             <span class="logout-label">{{ isLoggingOut ? '...' : 'Logout' }}</span>
           </button>
@@ -117,14 +98,16 @@ const navItems = [
 /* Main content — sits next to sidebar on desktop */
 .main-content {
   flex: 1;
-  min-width: 0; /* prevent flex overflow */
+  min-width: 0;
+  /* prevent flex overflow */
   /* Mobile: leave room for bottom nav */
   padding-bottom: 70px;
 }
 
 /* ── Sidebar ───────────────────────────────────────────────────── */
 .sidebar {
-  display: none; /* hidden on mobile */
+  display: none;
+  /* hidden on mobile */
 }
 
 /* ── Mobile Bottom Navigation ──────────────────────────────────── */
@@ -222,8 +205,13 @@ nav a:hover {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════ */
@@ -244,30 +232,27 @@ nav a:hover {
 /* Desktop (1024px+) — sidebar replaces bottom nav                */
 /* ═══════════════════════════════════════════════════════════════ */
 @media (min-width: 1024px) {
-  /* The sidebar is position:fixed so it needs NO grid column.
-     We simply push the main content area with margin-left. */
   .app-shell.with-nav {
-    display: block;
+    display: flex;
+    align-items: stretch;
+    min-height: 100vh;
   }
 
-  /* Show sidebar */
   .sidebar {
     display: flex;
     flex-direction: column;
-    position: fixed;
+    position: sticky;
     top: 0;
-    left: 0;
     width: 220px;
     height: 100vh;
-    background: rgba(10, 11, 16, 0.97);
+    background: #0a0b10;
     border-right: 1px solid rgba(0, 210, 255, 0.12);
-    box-shadow: 4px 0 30px rgba(0, 0, 0, 0.5);
+    box-shadow: 4px 0 30px rgba(0, 0, 0, 0.6);
     padding: 1.5rem 0;
-    z-index: 100;
-    backdrop-filter: blur(20px);
+    flex-shrink: 0;
+    z-index: 10;
   }
 
-  /* Brand section */
   .sidebar-brand {
     display: flex;
     align-items: center;
@@ -308,7 +293,6 @@ nav a:hover {
     font-weight: 600;
   }
 
-  /* Sidebar nav links */
   .sidebar-nav {
     display: flex;
     flex-direction: column;
@@ -318,7 +302,10 @@ nav a:hover {
 
   .sidebar-link {
     display: flex;
+    flex-direction: row;
     align-items: center;
+    justify-content: left;
+    width: 100%;
     gap: 12px;
     padding: 0.7rem 0.75rem;
     border-radius: 10px;
@@ -356,12 +343,10 @@ nav a:hover {
     font-size: 0.78rem;
   }
 
-  /* Spacer pushes status + logout to bottom */
   .sidebar-spacer {
     flex: 1;
   }
 
-  /* System status badge */
   .sidebar-status {
     display: flex;
     align-items: center;
@@ -392,11 +377,17 @@ nav a:hover {
   }
 
   @keyframes pulse-anim {
-    0%   { opacity: 0.5; box-shadow: 0 0 2px var(--neon-green); }
-    100% { opacity: 1;   box-shadow: 0 0 12px var(--neon-green); }
+    0% {
+      opacity: 0.5;
+      box-shadow: 0 0 2px var(--neon-green);
+    }
+
+    100% {
+      opacity: 1;
+      box-shadow: 0 0 12px var(--neon-green);
+    }
   }
 
-  /* Sidebar logout button */
   .sidebar-logout {
     display: flex;
     align-items: center;
@@ -437,9 +428,10 @@ nav a:hover {
     display: none;
   }
 
-  /* Offset main content to account for fixed sidebar */
+  /* Main content fills the remaining flex space */
   .main-content {
-    margin-left: 220px;
+    flex: 1;
+    min-width: 0;
     padding-bottom: 0;
   }
 }
