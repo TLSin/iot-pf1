@@ -1,20 +1,16 @@
 @import './base.css';
 
 body {
-  /* Set a slight background for the desktop "frame" area outside the mobile view */
-  background-color: var(--color-background-mute);
+  background-color: var(--bg-base);
   display: flex;
   justify-content: center;
 }
 
 #app {
-  max-width: 480px; /* Mobile width boundary */
   width: 100%;
-  margin: 0 auto;
   font-weight: normal;
-  background-color: var(--color-background); /* Override the body background for the content */
+  background-color: var(--bg-base);
   min-height: 100vh;
-  box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
   position: relative;
 }
 

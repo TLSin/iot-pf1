@@ -145,7 +145,7 @@ onUnmounted(() => {
 
 <template>
     <div class="dashboard">
-        <header class="header">
+        <header class="page-header">
             <div class="logo">
                 <span class="icon-pulse"></span>
                 <h1>USER DIRECTORY</h1>
@@ -157,10 +157,12 @@ onUnmounted(() => {
         </header>
 
         <main class="main-content">
-            <section class="panel panel-secondary">
-                <div class="panel-header d-flex-between">
-                    <div class="header-titles">
-                        <h2>AUTHORIZED USERS</h2>
+            <section class="panel">
+
+                <!-- Panel toolbar -->
+                <div class="panel-toolbar">
+                    <div class="toolbar-left">
+                        <h2 class="panel-title">AUTHORIZED USERS</h2>
                         <span class="cards-status">{{ activeCount }} ACTIVE &bull; {{ revokedCount }} REVOKED</span>
                     </div>
 
@@ -183,15 +185,18 @@ onUnmounted(() => {
                     PLACE YOUR RFID CARD ON THE READER
                 </div>
 
-                <div v-if="usersLoading" class="user-list">
-                    <div class="user-skeleton" v-for="n in 3" :key="n"></div>
-                </div>
-
-                <div v-else-if="userError" class="state-banner state-error">
+                <!-- Error banner -->
+                <div v-if="userError" class="state-banner state-error">
                     {{ userError }}
                 </div>
 
-                <div v-else class="user-list">
+                <!-- Loading skeletons -->
+                <div v-if="usersLoading" class="user-grid">
+                    <div class="user-skeleton" v-for="n in 6" :key="n"></div>
+                </div>
+
+                <!-- User grid -->
+                <div v-else class="user-grid">
                     <UserCard
                         v-for="user in users"
                         :key="user.id"
@@ -219,11 +224,10 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* ── Dashboard shell ──────────────────────────────────────────── */
 .dashboard {
-    display: flex;
-    flex-direction: column;
     min-height: 100vh;
-    padding: 1.5rem 2rem;
+    padding: 1.5rem 1.25rem;
     box-sizing: border-box;
     background-image:
         radial-gradient(circle at 10% 20%, rgba(0, 210, 255, 0.03) 0%, transparent 20%),
@@ -232,13 +236,16 @@ onUnmounted(() => {
     background-size: 100% 100%, 40px 40px, 40px 40px;
 }
 
-.header {
+/* ── Page header ──────────────────────────────────────────────── */
+.page-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 1rem;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: nowrap;
+    gap: 1rem;
 }
 
 .logo { display: flex; align-items: center; gap: 10px; }
@@ -251,7 +258,7 @@ onUnmounted(() => {
 }
 
 .logo h1 {
-    font-size: 1.5rem;
+    font-size: 1.3rem;
     font-weight: 800;
     font-family: 'Space Grotesk', sans-serif;
     letter-spacing: 2px;
@@ -264,11 +271,13 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--neon-green);
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
     letter-spacing: 1px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .pulse {
@@ -285,13 +294,8 @@ onUnmounted(() => {
     100% { opacity: 1;   box-shadow: 0 0 12px var(--neon-green); }
 }
 
-.main-content {
-    display: flex;
-    gap: 2rem;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: flex-start;
-}
+/* ── Panel ────────────────────────────────────────────────────── */
+.main-content { display: flex; flex-direction: column; }
 
 .panel {
     background: var(--panel-bg);
@@ -300,24 +304,28 @@ onUnmounted(() => {
     padding: 1.5rem;
     backdrop-filter: blur(12px);
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.05);
-    flex: 1;
-    min-width: 300px;
 }
 
-.panel-secondary { max-width: 800px; }
-
-.d-flex-between {
+/* ── Panel toolbar ────────────────────────────────────────────── */
+.panel-toolbar {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 1rem;
     margin-bottom: 1.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    flex-wrap: wrap;
 }
 
-.header-titles { display: flex; align-items: center; gap: 15px; }
+.toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
 
-.panel-header h2 {
+.panel-title {
     font-size: 0.85rem;
     font-family: 'Space Grotesk', sans-serif;
     color: var(--text-muted);
@@ -335,9 +343,10 @@ onUnmounted(() => {
     padding: 4px 10px;
     border-radius: 10px;
     letter-spacing: 1px;
+    white-space: nowrap;
 }
 
-/* Register button */
+/* ── Register button ──────────────────────────────────────────── */
 .btn-register {
     background: rgba(12, 255, 154, 0.1);
     border: 1px solid var(--neon-green);
@@ -352,6 +361,7 @@ onUnmounted(() => {
     transition: all 0.2s;
     box-shadow: 0 0 10px rgba(12, 255, 154, 0.1);
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .btn-register:hover:not(:disabled) {
@@ -391,7 +401,7 @@ onUnmounted(() => {
 
 @keyframes blink { 50% { opacity: 0.6; } }
 
-/* Scanning notice banner */
+/* ── Notices ──────────────────────────────────────────────────── */
 .register-notice {
     display: flex;
     align-items: center;
@@ -411,9 +421,14 @@ onUnmounted(() => {
 
 .notice-icon { font-size: 1rem; animation: none; }
 
-/* User Items */
-.user-list { display: flex; flex-direction: column; gap: 1rem; }
+/* ── User grid — single col mobile, multi-col desktop ─────────── */
+.user-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+}
 
+/* ── State elements ───────────────────────────────────────────── */
 .state-banner {
     padding: 14px 18px;
     border-radius: 8px;
@@ -421,6 +436,7 @@ onUnmounted(() => {
     font-family: 'Space Grotesk', sans-serif;
     letter-spacing: 0.5px;
     text-align: center;
+    margin-bottom: 1rem;
 }
 
 .state-error {
@@ -453,5 +469,35 @@ onUnmounted(() => {
     color: var(--text-muted);
     letter-spacing: 2px;
     font-size: 0.9rem;
+    grid-column: 1 / -1; /* span full width in grid */
+}
+
+/* ══════════════════════════════════════════════════════════════ */
+/* Tablet (768px+) — 2-column card grid                          */
+/* ══════════════════════════════════════════════════════════════ */
+@media (min-width: 768px) {
+    .dashboard { padding: 2rem 2.5rem; }
+
+    .user-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════ */
+/* Desktop (1024px+) — wider spacing, toolbar tweaks             */
+/* ══════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+    .dashboard { padding: 2rem 2.5rem; }
+
+    .panel-toolbar { flex-wrap: nowrap; }
+}
+
+/* ══════════════════════════════════════════════════════════════ */
+/* Large desktop (1280px+) — 3-column card grid                  */
+/* ══════════════════════════════════════════════════════════════ */
+@media (min-width: 1280px) {
+    .user-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
 }
 </style>

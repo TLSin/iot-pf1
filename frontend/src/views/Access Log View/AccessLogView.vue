@@ -38,11 +38,11 @@ const visiblePages = computed(() => {
     const total = totalPages.value
     let start = Math.max(1, currentPage.value - 2)
     let end = Math.min(total, start + 4)
-    
+
     if (end - start < 4) {
         start = Math.max(1, end - 4)
     }
-    
+
     for (let i = start; i <= end; i++) {
         pages.push(i)
     }
@@ -72,6 +72,13 @@ function timeAgo(isoString) {
     if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
     return `${Math.floor(diff / 86400)}d ago`
+}
+
+function formatTime(isoString) {
+    return new Date(isoString).toLocaleString(undefined, {
+        month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+    })
 }
 
 // ── WebSocket — live log append ───────────────────────────────────────────────
@@ -111,7 +118,7 @@ onUnmounted(() => {
 
 <template>
     <div class="dashboard">
-        <header class="header">
+        <header class="page-header">
             <div class="logo">
                 <span class="icon-pulse"></span>
                 <h1>ACCESS LOGS</h1>
@@ -123,10 +130,11 @@ onUnmounted(() => {
         </header>
 
         <main class="main-content">
-            <section class="panel panel-secondary">
-                <div class="panel-header d-flex-between">
-                    <div>
-                        <h2>FULL ACCESS HISTORY</h2>
+            <section class="panel">
+                <!-- Panel toolbar: title + count + filters -->
+                <div class="panel-toolbar">
+                    <div class="toolbar-left">
+                        <h2 class="panel-title">FULL ACCESS HISTORY</h2>
                         <p class="log-count">{{ totalLogs }} LOGS</p>
                     </div>
                     <div class="filter-controls">
@@ -136,49 +144,90 @@ onUnmounted(() => {
                     </div>
                 </div>
 
+                <!-- Loading -->
                 <div v-if="historyLoading" class="logs-container">
-                    <div class="log-skeleton" v-for="n in 6" :key="n"></div>
+                    <div class="log-skeleton" v-for="n in 8" :key="n"></div>
                 </div>
 
+                <!-- Error -->
                 <div v-else-if="historyError" class="state-banner state-error">
                     {{ historyError }}
                 </div>
 
+                <!-- Empty -->
                 <div v-else-if="historyLogs.length === 0" class="state-banner state-empty">
                     No access events recorded yet.
                 </div>
 
-                <div v-else class="logs-container">
-                    <UserStatCard
-                        v-for="log in paginatedLogs"
-                        :key="log.log_id"
-                        :name="log.card_name"
-                        :status="log.status"
-                        :time="timeAgo(log.created_at)"
-                    />
-                    <div v-if="filteredLogs.length === 0" class="empty-state">
-                        NO LOGS FOUND FOR THIS FILTER
+                <!-- Log table — card view on mobile, table on desktop -->
+                <template v-else>
+                    <!-- Mobile: card list -->
+                    <div class="logs-container mobile-logs">
+                        <UserStatCard
+                            v-for="log in paginatedLogs"
+                            :key="log.log_id"
+                            :name="log.card_name"
+                            :status="log.status"
+                            :time="timeAgo(log.created_at)"
+                        />
+                        <div v-if="filteredLogs.length === 0" class="empty-state">
+                            NO LOGS FOUND FOR THIS FILTER
+                        </div>
                     </div>
-                </div>
 
-                <!-- Pagination Controls -->
+                    <!-- Desktop: table view -->
+                    <div class="table-container desktop-logs">
+                        <table class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>STATUS</th>
+                                    <th>CARD / USER</th>
+                                    <th>TIMESTAMP</th>
+                                    <th>RELATIVE</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr
+                                    v-for="log in paginatedLogs"
+                                    :key="log.log_id"
+                                    :class="log.status"
+                                >
+                                    <td>
+                                        <span class="status-pill" :class="log.status">
+                                            {{ log.status === 'granted' ? '✓' : '✗' }}
+                                            {{ log.status.toUpperCase() }}
+                                        </span>
+                                    </td>
+                                    <td class="td-name">{{ log.card_name || '—' }}</td>
+                                    <td class="td-time">{{ formatTime(log.created_at) }}</td>
+                                    <td class="td-relative">{{ timeAgo(log.created_at) }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div v-if="filteredLogs.length === 0" class="empty-state">
+                            NO LOGS FOUND FOR THIS FILTER
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Pagination -->
                 <div v-if="filteredLogs.length > 0 && !historyLoading" class="pagination-footer">
                     <div class="pagination-info">
                         {{ paginationDisplay }}
                     </div>
-                    
+
                     <div class="pagination-controls">
-                        <button 
-                            class="page-btn prev-next" 
+                        <button
+                            class="page-btn prev-next"
                             :disabled="currentPage === 1"
                             @click="prevPage"
                         >
-                            &lt; Previous
+                            &lt; Prev
                         </button>
-                        
+
                         <div class="page-numbers">
-                            <button 
-                                v-for="p in visiblePages" 
+                            <button
+                                v-for="p in visiblePages"
                                 :key="p"
                                 class="page-btn"
                                 :class="{ active: p === currentPage }"
@@ -187,9 +236,9 @@ onUnmounted(() => {
                                 {{ p }}
                             </button>
                         </div>
-                        
-                        <button 
-                            class="page-btn prev-next" 
+
+                        <button
+                            class="page-btn prev-next"
                             :disabled="currentPage === totalPages"
                             @click="nextPage"
                         >
@@ -207,11 +256,10 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* ── Dashboard shell ──────────────────────────────────────────── */
 .dashboard {
-    display: flex;
-    flex-direction: column;
     min-height: 100vh;
-    padding: 1.5rem 2rem;
+    padding: 1.5rem 1.25rem;
     box-sizing: border-box;
     background-image:
         radial-gradient(circle at 10% 20%, rgba(0, 210, 255, 0.03) 0%, transparent 20%),
@@ -220,13 +268,16 @@ onUnmounted(() => {
     background-size: 100% 100%, 40px 40px, 40px 40px;
 }
 
-.header {
+/* ── Page header ──────────────────────────────────────────────── */
+.page-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 1rem;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: nowrap;
+    gap: 1rem;
 }
 
 .logo { display: flex; align-items: center; gap: 10px; }
@@ -239,7 +290,7 @@ onUnmounted(() => {
 }
 
 .logo h1 {
-    font-size: 1.5rem;
+    font-size: 1.3rem;
     font-weight: 800;
     font-family: 'Space Grotesk', sans-serif;
     letter-spacing: 2px;
@@ -252,11 +303,13 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--neon-green);
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
     letter-spacing: 1px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .pulse {
@@ -273,12 +326,10 @@ onUnmounted(() => {
     100% { opacity: 1;   box-shadow: 0 0 12px var(--neon-green); }
 }
 
+/* ── Main content ─────────────────────────────────────────────── */
 .main-content {
     display: flex;
-    gap: 2rem;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: flex-start;
+    flex-direction: column;
 }
 
 .panel {
@@ -288,21 +339,21 @@ onUnmounted(() => {
     padding: 1.5rem;
     backdrop-filter: blur(12px);
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.05);
-    flex: 1;
-    min-width: 300px;
 }
 
-.panel-secondary { max-width: 800px; }
-
-.d-flex-between {
+/* ── Panel toolbar ────────────────────────────────────────────── */
+.panel-toolbar {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     gap: 1rem;
     margin-bottom: 1.5rem;
+    flex-wrap: wrap;
 }
 
-.panel-header h2 {
+.toolbar-left { display: flex; flex-direction: column; }
+
+.panel-title {
     font-size: 0.85rem;
     font-family: 'Space Grotesk', sans-serif;
     color: var(--text-muted);
@@ -313,7 +364,7 @@ onUnmounted(() => {
 }
 
 .log-count {
-    margin: 0.45rem 0 0 14px;
+    margin: 0.4rem 0 0 14px;
     color: var(--text-muted);
     font-size: 0.7rem;
     font-family: 'Space Grotesk', sans-serif;
@@ -323,7 +374,6 @@ onUnmounted(() => {
 .filter-controls {
     display: flex;
     flex-wrap: wrap;
-    justify-content: flex-end;
     gap: 8px;
 }
 
@@ -349,8 +399,90 @@ onUnmounted(() => {
     box-shadow: 0 0 10px rgba(0, 210, 255, 0.2);
 }
 
-.logs-container { display: flex; flex-direction: column; gap: 0.8rem; }
+/* ── Mobile card list ─────────────────────────────────────────── */
+.logs-container { display: flex; flex-direction: column; gap: 0.75rem; }
 
+/* Show mobile list, hide desktop table by default */
+.mobile-logs  { display: flex; }
+.desktop-logs { display: none; }
+
+/* ── Desktop table ────────────────────────────────────────────── */
+.table-container {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+}
+
+.log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Space Grotesk', sans-serif;
+}
+
+.log-table thead tr {
+    background: rgba(0, 210, 255, 0.05);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.log-table th {
+    padding: 0.85rem 1.25rem;
+    text-align: left;
+    font-size: 0.68rem;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.log-table tbody tr {
+    border-bottom: 1px solid rgba(0, 210, 255, 0.06);
+    transition: background 0.15s;
+}
+
+.log-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.log-table tbody tr:hover {
+    background: rgba(0, 210, 255, 0.03);
+}
+
+.log-table td {
+    padding: 0.9rem 1.25rem;
+    font-size: 0.85rem;
+    color: var(--text-main);
+    vertical-align: middle;
+}
+
+.td-name { font-weight: 600; }
+.td-time { color: var(--text-muted); font-size: 0.8rem; }
+.td-relative { color: var(--text-muted); font-size: 0.8rem; }
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    white-space: nowrap;
+}
+
+.status-pill.granted {
+    background: rgba(12, 255, 154, 0.1);
+    color: var(--neon-green);
+    border: 1px solid rgba(12, 255, 154, 0.3);
+}
+
+.status-pill.rejected {
+    background: rgba(255, 51, 102, 0.1);
+    color: var(--neon-red);
+    border: 1px solid rgba(255, 51, 102, 0.3);
+}
+
+/* ── State banners ────────────────────────────────────────────── */
 .state-banner {
     padding: 14px 18px;
     border-radius: 8px;
@@ -398,7 +530,7 @@ onUnmounted(() => {
     font-size: 0.9rem;
 }
 
-/* Pagination Styles */
+/* ── Pagination ───────────────────────────────────────────────── */
 .pagination-footer {
     display: flex;
     flex-direction: column;
@@ -419,13 +551,12 @@ onUnmounted(() => {
 .pagination-controls {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: center;
 }
 
-.page-numbers {
-    display: flex;
-    gap: 6px;
-}
+.page-numbers { display: flex; gap: 6px; }
 
 .page-btn {
     background: rgba(255, 255, 255, 0.05);
@@ -440,9 +571,7 @@ onUnmounted(() => {
     transition: all 0.2s;
 }
 
-.page-btn.prev-next {
-    padding: 6px 16px;
-}
+.page-btn.prev-next { padding: 6px 16px; }
 
 .page-btn:hover:not(:disabled) {
     border-color: var(--neon-blue);
@@ -469,10 +598,27 @@ onUnmounted(() => {
     letter-spacing: 1px;
 }
 
-@media (max-width: 640px) {
-    .dashboard { padding: 1rem; }
-    .header, .d-flex-between { flex-direction: column; align-items: stretch; }
-    .filter-controls { justify-content: flex-start; }
-    .pagination-controls { gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
+/* ══════════════════════════════════════════════════════════════ */
+/* Tablet (768px+)                                               */
+/* ══════════════════════════════════════════════════════════════ */
+@media (min-width: 768px) {
+    .dashboard { padding: 2rem 2.5rem; }
+
+    .pagination-footer { flex-direction: row; justify-content: space-between; }
+}
+
+/* ══════════════════════════════════════════════════════════════ */
+/* Desktop (1024px+) — switch to table view                      */
+/* ══════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+    .dashboard { padding: 2rem 2.5rem; }
+
+    /* Hide card list, show table */
+    .mobile-logs  { display: none; }
+    .desktop-logs { display: block; }
+
+    .panel-toolbar { flex-wrap: nowrap; align-items: center; }
+    .toolbar-left { flex-direction: row; align-items: center; gap: 12px; }
+    .log-count { margin: 0; }
 }
 </style>

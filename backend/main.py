@@ -1,5 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from deps.rate_limit import limiter
 from routers.auth.signup import router as signup_router
 from routers.auth.login import router as login_router
 from routers.auth.logout import router as logout_router
@@ -9,6 +14,12 @@ from routers.scan_card import router as scan_card_router
 
 app = FastAPI()
 
+# ─── Rate limiting ────────────────────────────────────────────────────────────
+# Attach the SlowAPI limiter to the app state so it can intercept requests.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ─── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -17,6 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ─── Routers ──────────────────────────────────────────────────────────────────
 app.include_router(signup_router, prefix="/auth/signup", tags=["auth"])
 app.include_router(login_router, prefix="/auth/login", tags=["auth"])
 app.include_router(logout_router, prefix="/auth/logout", tags=["auth"])

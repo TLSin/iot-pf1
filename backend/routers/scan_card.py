@@ -55,6 +55,7 @@ _reg_state = RegistrationState()
 
 class ValidateRequest(BaseModel):
     card_hash: str
+    user_id: Optional[str] = None  # Scope the lookup to a specific owner when known
 
 
 class ValidateResponse(BaseModel):
@@ -100,18 +101,21 @@ def _insert_access_log(
     user_id: Optional[str],
     status: str,
     card_hash: str,
+    reason: Optional[str] = None,
 ) -> None:
     """Insert a record into access_logs.  Errors are logged but not re-raised
     so that the validate response still reaches scan.py even if logging fails."""
     try:
-        client.table("access_logs").insert(
-            {
-                "card_id": card_id,
-                "card_name": card_name,
-                "status": status,
-                "created_at": _now_iso(),
-            }
-        ).execute()
+        record: dict = {
+            "card_id": card_id,
+            "card_name": card_name,
+            "user_id": user_id,
+            "status": status,
+            "created_at": _now_iso(),
+        }
+        if reason:
+            record["reason"] = reason
+        client.table("access_logs").insert(record).execute()
     except Exception as exc:
         logger.error("Failed to insert access_log: %s", exc)
 
@@ -123,33 +127,61 @@ async def validate_card(payload: ValidateRequest) -> ValidateResponse:
     """
     Called by scan.py when Arduino sends SCAN:RFID_HASH.
 
+    Ownership-aware validation logic
+    ---------------------------------
+    Validation is always scoped by (user_id, card_hash) when a user_id is
+    supplied in the request.  When user_id is omitted (e.g. legacy scan.py
+    that does not know the owner), we fetch *all* cards matching the hash and
+    prefer the first active one, so that a revoked card registered to User A
+    never blocks an active card with the same hash registered to User B.
+
+    Steps
+    -----
     1. Broadcast 'scanning' event to all Vue dashboards.
-    2. Look up the card in rfid_cards by card_uuid_hash.
+    2. Look up the card(s) in rfid_cards scoped by user_id when known.
     3. Determine grant/reject status.
     4. Insert an access_log entry.
     5. Broadcast 'scan_result' event.
     6. Return the result to scan.py.
     """
     card_hash = payload.card_hash.strip()
+    request_user_id = payload.user_id  # may be None for hardware-only callers
 
     # — Step 1: Notify dashboards that a scan is in progress —
     await broadcast_scanning()
 
-    # — Step 2: Look up the card —
+    # — Step 2: Look up the card, scoped by owner when known —
     card = None
     try:
-        resp = (
+        query = (
             client.table("rfid_cards")
             .select("card_id, card_uuid_hash, card_name, card_role, status, user_id")
             .eq("card_uuid_hash", card_hash)
-            .limit(1)
-            .execute()
         )
-        rows = resp.data or []
-        if rows:
-            card = rows[0]
+        if request_user_id:
+            # Ownership-scoped lookup: only consider this user's card.
+            query = query.eq("user_id", request_user_id).limit(1)
+        else:
+            # No user_id supplied (hardware scan): fetch all cards with this
+            # hash so we can select the active one, avoiding cross-user
+            # pollution from revoked records owned by other users.
+            query = query.limit(50)
+
+        resp = query.execute()
+        rows: list[dict] = resp.data or []
     except Exception as exc:
         raise _supabase_error("lookup rfid_card by hash", exc)
+
+    if request_user_id:
+        # Single-user scope: use the exact record (or None).
+        card = rows[0] if rows else None
+    else:
+        # Multi-user scope: prefer an active card over any revoked one.
+        # This prevents a revoked card for User A blocking User B's active card.
+        active_cards = [
+            r for r in rows if r.get("status") not in {"revoke", "revoked"}
+        ]
+        card = active_cards[0] if active_cards else (rows[0] if rows else None)
 
     # — Step 3: Determine result —
     if card is None:
@@ -158,18 +190,30 @@ async def validate_card(payload: ValidateRequest) -> ValidateResponse:
         card_id = None
         card_name = None
         user_id = None
+        logger.info(
+            "Card not registered — hash=%s requested_user=%s",
+            card_hash, request_user_id,
+        )
     elif card.get("status") in {"revoke", "revoked"}:
         result_status = "rejected"
         reason = "Card revoked"
         card_id = card["card_id"]
         card_name = card.get("card_name")
         user_id = card.get("user_id")
+        logger.info(
+            "Card revoked — hash=%s card_id=%s owner=%s",
+            card_hash, card_id, user_id,
+        )
     else:
         result_status = "granted"
         reason = None
         card_id = card["card_id"]
         card_name = card.get("card_name")
         user_id = card.get("user_id")
+        logger.info(
+            "Card granted — hash=%s card_id=%s owner=%s",
+            card_hash, card_id, user_id,
+        )
 
     # — Step 4: Log the access attempt —
     _insert_access_log(
@@ -178,6 +222,7 @@ async def validate_card(payload: ValidateRequest) -> ValidateResponse:
         user_id=user_id,
         status=result_status,
         card_hash=card_hash,
+        reason=reason,
     )
 
     # — Step 5: Broadcast result to Vue dashboards —
