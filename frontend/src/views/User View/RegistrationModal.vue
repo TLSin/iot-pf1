@@ -1,20 +1,25 @@
 <script setup>
 import { ref } from 'vue'
 
-const emit = defineEmits(['close', 'save'])
-defineProps({
-    saving: { type: Boolean, default: false },
-    error: { type: String, default: '' },
+const props = defineProps({
+    saving:   { type: Boolean, default: false },
+    error:    { type: String,  default: '' },
+    /** RFID hash received from the physical card scan — read-only */
+    cardHash: { type: String,  default: '' },
 })
+
+const emit = defineEmits(['close', 'save'])
 
 const userFields = ref({
     name: '',
-    role: 'Standard User'
+    role: 'Standard User',
 })
 
 const handleSave = () => {
-    emit('save', { ...userFields.value })
-    // reset after emitting
+    emit('save', {
+        ...userFields.value,
+        card_hash: props.cardHash,   // pass the real scanned hash
+    })
     userFields.value.name = ''
     userFields.value.role = 'Standard User'
 }
@@ -25,12 +30,12 @@ const handleSave = () => {
         <div class="modal card-modal">
             <h2>RFID CHIP DETECTED</h2>
             <p>Register a new user identity for this card signature.</p>
-            
+
             <div class="form-group">
                 <label>CARD HOLDER NAME</label>
                 <input v-model="userFields.name" type="text" placeholder="e.g. John Doe" />
             </div>
-            
+
             <div class="form-group">
                 <label>USER PRIVILEGES</label>
                 <select v-model="userFields.role">
@@ -40,11 +45,20 @@ const handleSave = () => {
                 </select>
             </div>
 
+            <!-- Read-only RFID hash field -->
+            <div class="form-group">
+                <label>RFID HASH</label>
+                <div class="hash-display">
+                    <span class="hash-icon">🔑</span>
+                    <span class="hash-value">{{ cardHash || '—' }}</span>
+                </div>
+            </div>
+
             <div v-if="error" class="modal-error">{{ error }}</div>
-            
+
             <div class="modal-actions">
                 <button class="btn-cancel" :disabled="saving" @click="$emit('close')">CANCEL</button>
-                <button class="btn-save" :disabled="saving" @click="handleSave">
+                <button class="btn-save"   :disabled="saving || !cardHash" @click="handleSave">
                     {{ saving ? 'BINDING...' : 'BIND TO CARD' }}
                 </button>
             </div>
@@ -91,9 +105,7 @@ const handleSave = () => {
     margin-bottom: 1.5rem;
 }
 
-.form-group {
-    margin-bottom: 1.2rem;
-}
+.form-group { margin-bottom: 1.2rem; }
 
 .form-group label {
     display: block;
@@ -104,7 +116,8 @@ const handleSave = () => {
     letter-spacing: 1px;
 }
 
-.form-group input, .form-group select {
+.form-group input,
+.form-group select {
     width: 100%;
     padding: 10px 12px;
     background: rgba(0, 0, 0, 0.3);
@@ -117,7 +130,8 @@ const handleSave = () => {
     box-sizing: border-box;
 }
 
-.form-group input:focus, .form-group select:focus {
+.form-group input:focus,
+.form-group select:focus {
     outline: none;
     border-color: var(--neon-blue);
     box-shadow: 0 0 10px rgba(0, 210, 255, 0.2);
@@ -126,6 +140,30 @@ const handleSave = () => {
 .form-group select option {
     background: var(--bg-base);
     color: var(--text-main);
+}
+
+/* RFID hash read-only display */
+.hash-display {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(0, 210, 255, 0.04);
+    border: 1px solid rgba(0, 210, 255, 0.2);
+    border-radius: 8px;
+    box-sizing: border-box;
+    min-height: 42px;
+}
+
+.hash-icon { font-size: 1rem; flex-shrink: 0; }
+
+.hash-value {
+    font-family: 'Space Grotesk', monospace;
+    font-size: 0.85rem;
+    color: var(--neon-blue);
+    letter-spacing: 1.5px;
+    word-break: break-all;
+    text-shadow: 0 0 6px rgba(0, 210, 255, 0.3);
 }
 
 .modal-actions {

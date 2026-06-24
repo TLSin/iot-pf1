@@ -38,9 +38,29 @@ export async function fetchCards() {
 }
 
 /**
- * Register a new RFID card for the current authenticated user.
+ * Notify FastAPI that the user wants to register a new RFID card.
+ * FastAPI sets a flag that scan.py polls, then scan.py sends 'R' to Arduino.
  *
- * @param {{ card_name: string, card_role: string, card_uuid_hash?: string }} card
+ * @returns {Promise<{ ok: boolean, message: string }>}
+ */
+export async function registerCardMode() {
+  const res = await fetch(`${API_BASE}/scan-card/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+  })
+
+  if (!res.ok) {
+    await readJsonError(res, `Register mode request failed (${res.status})`)
+  }
+
+  return res.json()
+}
+
+/**
+ * Register a new RFID card for the current authenticated user.
+ * card_uuid_hash must be the real hash received from the RFID reader.
+ *
+ * @param {{ card_name: string, card_role: string, card_uuid_hash: string }} card
  * @returns {Promise<Object>}
  */
 export async function addCard(card) {

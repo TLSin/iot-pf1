@@ -1,37 +1,111 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import UserStatCard from '@/components/UserStatCard.vue'
 import { fetchHistory } from '@/services/dashboard.js'
+import { useWebSocket } from '@/composables/useWebSocket.js'
 
-const currentFilter = ref('all') // 'all', 'granted', 'rejected'
-const historyLogs = ref([])
+const currentFilter = ref('all')  // 'all' | 'granted' | 'rejected'
+const historyLogs   = ref([])
 const historyLoading = ref(true)
-const historyError = ref('')
-const totalLogs = ref(0)
+const historyError   = ref('')
+const totalLogs      = ref(0)
+
+const currentPage  = ref(1)
+const itemsPerPage = 10
 
 const filteredLogs = computed(() => {
     if (currentFilter.value === 'all') return historyLogs.value
     return historyLogs.value.filter(log => log.status === currentFilter.value)
 })
 
+const totalPages = computed(() => Math.ceil(filteredLogs.value.length / itemsPerPage) || 1)
+
+const paginatedLogs = computed(() => {
+    const start = (currentPage.value - 1) * itemsPerPage
+    return filteredLogs.value.slice(start, start + itemsPerPage)
+})
+
+const paginationDisplay = computed(() => {
+    const total = filteredLogs.value.length
+    if (total === 0) return ''
+    const start = (currentPage.value - 1) * itemsPerPage + 1
+    const end = Math.min(currentPage.value * itemsPerPage, total)
+    return `Showing ${start}–${end} of ${total} records`
+})
+
+const visiblePages = computed(() => {
+    const pages = []
+    const total = totalPages.value
+    let start = Math.max(1, currentPage.value - 2)
+    let end = Math.min(total, start + 4)
+    
+    if (end - start < 4) {
+        start = Math.max(1, end - 4)
+    }
+    
+    for (let i = start; i <= end; i++) {
+        pages.push(i)
+    }
+    return pages
+})
+
+function setFilter(filter) {
+    currentFilter.value = filter
+    currentPage.value = 1
+}
+
+function prevPage() {
+    if (currentPage.value > 1) currentPage.value--
+}
+
+function nextPage() {
+    if (currentPage.value < totalPages.value) currentPage.value++
+}
+
+function setPage(page) {
+    currentPage.value = page
+}
+
 function timeAgo(isoString) {
     const diff = Math.max(0, Math.floor((Date.now() - new Date(isoString)) / 1000))
-    if (diff < 60) return `${diff}s ago`
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+    if (diff < 60)    return `${diff}s ago`
+    if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
     return `${Math.floor(diff / 86400)}d ago`
 }
 
+// ── WebSocket — live log append ───────────────────────────────────────────────
+const { onEvent } = useWebSocket()
+let offEvent = null
+
+function handleWsEvent(msg) {
+    if (msg.event === 'scan_result') {
+        const newEntry = {
+            log_id:     `ws-${Date.now()}`,
+            card_name:  msg.user_name || msg.card_name || 'Unknown',
+            status:     msg.status,
+            created_at: msg.timestamp || new Date().toISOString(),
+        }
+        historyLogs.value  = [newEntry, ...historyLogs.value]
+        totalLogs.value    += 1
+    }
+}
+
 onMounted(async () => {
+    offEvent = onEvent(handleWsEvent)
     try {
         const history = await fetchHistory(null)
         historyLogs.value = history.logs || []
-        totalLogs.value = history.total ?? historyLogs.value.length
+        totalLogs.value   = history.total ?? historyLogs.value.length
     } catch (error) {
         historyError.value = error?.message || 'Failed to load access history.'
     } finally {
         historyLoading.value = false
     }
+})
+
+onUnmounted(() => {
+    offEvent?.()
 })
 </script>
 
@@ -56,9 +130,9 @@ onMounted(async () => {
                         <p class="log-count">{{ totalLogs }} LOGS</p>
                     </div>
                     <div class="filter-controls">
-                        <button :class="{ active: currentFilter === 'all' }" @click="currentFilter = 'all'">ALL</button>
-                        <button :class="{ active: currentFilter === 'granted' }" @click="currentFilter = 'granted'">GRANTED</button>
-                        <button :class="{ active: currentFilter === 'rejected' }" @click="currentFilter = 'rejected'">REJECTED</button>
+                        <button :class="{ active: currentFilter === 'all' }"      @click="setFilter('all')">ALL</button>
+                        <button :class="{ active: currentFilter === 'granted' }"  @click="setFilter('granted')">GRANTED</button>
+                        <button :class="{ active: currentFilter === 'rejected' }" @click="setFilter('rejected')">REJECTED</button>
                     </div>
                 </div>
 
@@ -75,16 +149,56 @@ onMounted(async () => {
                 </div>
 
                 <div v-else class="logs-container">
-                    <UserStatCard 
-                        v-for="log in filteredLogs" 
+                    <UserStatCard
+                        v-for="log in paginatedLogs"
                         :key="log.log_id"
                         :name="log.card_name"
                         :status="log.status"
                         :time="timeAgo(log.created_at)"
                     />
-                    
                     <div v-if="filteredLogs.length === 0" class="empty-state">
                         NO LOGS FOUND FOR THIS FILTER
+                    </div>
+                </div>
+
+                <!-- Pagination Controls -->
+                <div v-if="filteredLogs.length > 0 && !historyLoading" class="pagination-footer">
+                    <div class="pagination-info">
+                        {{ paginationDisplay }}
+                    </div>
+                    
+                    <div class="pagination-controls">
+                        <button 
+                            class="page-btn prev-next" 
+                            :disabled="currentPage === 1"
+                            @click="prevPage"
+                        >
+                            &lt; Previous
+                        </button>
+                        
+                        <div class="page-numbers">
+                            <button 
+                                v-for="p in visiblePages" 
+                                :key="p"
+                                class="page-btn"
+                                :class="{ active: p === currentPage }"
+                                @click="setPage(p)"
+                            >
+                                {{ p }}
+                            </button>
+                        </div>
+                        
+                        <button 
+                            class="page-btn prev-next" 
+                            :disabled="currentPage === totalPages"
+                            @click="nextPage"
+                        >
+                            Next &gt;
+                        </button>
+                    </div>
+
+                    <div class="pagination-summary">
+                        Page {{ currentPage }} of {{ totalPages }}
                     </div>
                 </div>
             </section>
@@ -93,21 +207,19 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* Scoped layout styles for Dashboard wrapper */
 .dashboard {
     display: flex;
     flex-direction: column;
     min-height: 100vh;
     padding: 1.5rem 2rem;
     box-sizing: border-box;
-    background-image: 
+    background-image:
         radial-gradient(circle at 10% 20%, rgba(0, 210, 255, 0.03) 0%, transparent 20%),
         linear-gradient(rgba(0, 210, 255, 0.02) 1px, transparent 1px),
         linear-gradient(90deg, rgba(0, 210, 255, 0.02) 1px, transparent 1px);
     background-size: 100% 100%, 40px 40px, 40px 40px;
 }
 
-/* Header */
 .header {
     display: flex;
     justify-content: space-between;
@@ -117,11 +229,7 @@ onMounted(async () => {
     margin-bottom: 2rem;
 }
 
-.logo {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
+.logo { display: flex; align-items: center; gap: 10px; }
 
 .icon-pulse {
     width: 8px;
@@ -161,11 +269,10 @@ onMounted(async () => {
 }
 
 @keyframes pulse-anim {
-    0% { opacity: 0.5; box-shadow: 0 0 2px var(--neon-green); }
-    100% { opacity: 1; box-shadow: 0 0 12px var(--neon-green); }
+    0%   { opacity: 0.5; box-shadow: 0 0 2px var(--neon-green); }
+    100% { opacity: 1;   box-shadow: 0 0 12px var(--neon-green); }
 }
 
-/* Layout */
 .main-content {
     display: flex;
     gap: 2rem;
@@ -185,11 +292,8 @@ onMounted(async () => {
     min-width: 300px;
 }
 
-.panel-secondary {
-    max-width: 800px; /* Wider for log listing */
-}
+.panel-secondary { max-width: 800px; }
 
-/* Panel Header & Filters */
 .d-flex-between {
     display: flex;
     justify-content: space-between;
@@ -237,18 +341,15 @@ onMounted(async () => {
     transition: all 0.2s;
 }
 
-.filter-controls button:hover, .filter-controls button.active {
+.filter-controls button:hover,
+.filter-controls button.active {
     border-color: var(--neon-blue);
     color: var(--neon-blue);
     background: rgba(0, 210, 255, 0.1);
     box-shadow: 0 0 10px rgba(0, 210, 255, 0.2);
 }
 
-.logs-container { 
-    display: flex; 
-    flex-direction: column; 
-    gap: 0.8rem; 
-}
+.logs-container { display: flex; flex-direction: column; gap: 0.8rem; }
 
 .state-banner {
     padding: 14px 18px;
@@ -284,8 +385,8 @@ onMounted(async () => {
 }
 
 @keyframes shimmer {
-    0% { background-position: -400px 0; }
-    100% { background-position: 400px 0; }
+    0%   { background-position: -400px 0; }
+    100% { background-position:  400px 0; }
 }
 
 .empty-state {
@@ -297,19 +398,81 @@ onMounted(async () => {
     font-size: 0.9rem;
 }
 
+/* Pagination Styles */
+.pagination-footer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.pagination-info {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: 1px;
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.page-numbers {
+    display: flex;
+    gap: 6px;
+}
+
+.page-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.page-btn.prev-next {
+    padding: 6px 16px;
+}
+
+.page-btn:hover:not(:disabled) {
+    border-color: var(--neon-blue);
+    color: var(--neon-blue);
+    background: rgba(0, 210, 255, 0.1);
+}
+
+.page-btn.active {
+    background: rgba(0, 210, 255, 0.15);
+    border-color: var(--neon-blue);
+    color: var(--neon-blue);
+    box-shadow: 0 0 10px rgba(0, 210, 255, 0.2);
+}
+
+.page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.pagination-summary {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: 1px;
+}
+
 @media (max-width: 640px) {
-    .dashboard {
-        padding: 1rem;
-    }
-
-    .header,
-    .d-flex-between {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .filter-controls {
-        justify-content: flex-start;
-    }
+    .dashboard { padding: 1rem; }
+    .header, .d-flex-between { flex-direction: column; align-items: stretch; }
+    .filter-controls { justify-content: flex-start; }
+    .pagination-controls { gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
 }
 </style>

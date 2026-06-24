@@ -86,18 +86,29 @@ def get_analytics(user: dict = Depends(get_current_user)):
 
     if card_ids:
         try:
+            card_id_list = ",".join(card_ids)
             logs_resp = (
                 client.table("access_logs")
                 .select("status")
-                .in_("card_id", card_ids)
+                .or_(f"card_id.in.({card_id_list}),card_id.is.null")
+                .execute()
+            )
+        except Exception as exc:
+            raise _supabase_error("fetch access_logs for analytics", exc)
+    else:
+        try:
+            logs_resp = (
+                client.table("access_logs")
+                .select("status")
+                .is_("card_id", "null")
                 .execute()
             )
         except Exception as exc:
             raise _supabase_error("fetch access_logs for analytics", exc)
 
-        logs = logs_resp.data or []
-        total_granted = sum(1 for l in logs if l.get("status") == "granted")
-        total_rejected = sum(1 for l in logs if l.get("status") == "rejected")
+    logs = logs_resp.data or []
+    total_granted = sum(1 for l in logs if l.get("status") == "granted")
+    total_rejected = sum(1 for l in logs if l.get("status") == "rejected")
 
     return AnalyticsResponse(
         total_cards=total_cards,
@@ -135,17 +146,23 @@ def get_history(
 
     card_ids = [c["card_id"] for c in (cards_resp.data or [])]
 
-    if not card_ids:
-        return HistoryResponse(logs=[], total=0)
-
-    # Fetch access logs for those cards, newest first
+    # Fetch access logs for those cards OR unregistered scans, newest first
     try:
-        query = (
-            client.table("access_logs")
-            .select("log_id, card_id, card_name, status, created_at")
-            .in_("card_id", card_ids)
-            .order("created_at", desc=True)
-        )
+        if card_ids:
+            card_id_list = ",".join(card_ids)
+            query = (
+                client.table("access_logs")
+                .select("log_id, card_id, card_name, status, created_at")
+                .or_(f"card_id.in.({card_id_list}),card_id.is.null")
+                .order("created_at", desc=True)
+            )
+        else:
+            query = (
+                client.table("access_logs")
+                .select("log_id, card_id, card_name, status, created_at")
+                .is_("card_id", "null")
+                .order("created_at", desc=True)
+            )
 
         if limit is not None:
             query = query.limit(max(1, limit))

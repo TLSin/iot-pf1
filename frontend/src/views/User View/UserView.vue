@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import UserCard from './UserCard.vue'
 import RegistrationModal from './RegistrationModal.vue'
 import {
@@ -7,15 +7,18 @@ import {
     addCard,
     revokeCard as revokeCardRequest,
     removeCard as removeCardRequest,
+    registerCardMode,
 } from '@/services/user.js'
+import { useWebSocket } from '@/composables/useWebSocket.js'
 
+// ── Card list ─────────────────────────────────────────────────────────────────
 const users = ref([])
 const usersLoading = ref(true)
 const userError = ref('')
 const savingCard = ref(false)
 const saveError = ref('')
 
-const activeCount = computed(() => users.value.filter(u => u.status === 'active').length)
+const activeCount  = computed(() => users.value.filter(u => u.status === 'active').length)
 const revokedCount = computed(() => users.value.filter(u => u.status === 'revoked').length)
 
 function makeInitials(name) {
@@ -31,22 +34,20 @@ function normalizeStatus(status) {
 
 function cardToUser(card) {
     const status = normalizeStatus(card.status)
-    const name = card.card_name || 'Unnamed Card'
-
+    const name   = card.card_name || 'Unnamed Card'
     return {
-        id: card.card_id,
+        id:       card.card_id,
         name,
-        role: card.card_role || 'Standard User',
+        role:     card.card_role || 'Standard User',
         initials: makeInitials(name),
         status,
-        accent: status === 'active' ? 'var(--neon-green)' : 'var(--neon-red)',
+        accent:   status === 'active' ? 'var(--neon-green)' : 'var(--neon-red)',
     }
 }
 
 async function loadCards() {
     usersLoading.value = true
     userError.value = ''
-
     try {
         const result = await fetchCards()
         users.value = (result.cards || []).map(cardToUser)
@@ -59,7 +60,6 @@ async function loadCards() {
 
 const revokeUser = async (id) => {
     userError.value = ''
-
     try {
         const card = await revokeCardRequest(id)
         users.value = users.value.map(user => user.id === id ? cardToUser(card) : user)
@@ -70,7 +70,6 @@ const revokeUser = async (id) => {
 
 const removeCard = async (id) => {
     userError.value = ''
-
     try {
         await removeCardRequest(id)
         users.value = users.value.filter(user => user.id !== id)
@@ -79,31 +78,42 @@ const removeCard = async (id) => {
     }
 }
 
-const isRegistering = ref(false)
-const showModal = ref(false)
+// ── Registration flow ─────────────────────────────────────────────────────────
+const isRegistering = ref(false)       // true while waiting for RFID scan
+const showModal     = ref(false)
+const scannedCardHash = ref('')        // populated by WebSocket event
 
-const registerCard = () => {
+/** Step 1 — User clicks "+ REGISTER CARD" */
+const registerCard = async () => {
+    if (isRegistering.value || usersLoading.value) return
     isRegistering.value = true
     saveError.value = ''
-    // Simulate a card scan delay
-    setTimeout(() => {
+    scannedCardHash.value = ''
+
+    try {
+        // Tell FastAPI to enter registration mode.
+        // scan.py will poll and send 'R' to Arduino.
+        await registerCardMode()
+        // isRegistering stays true — we wait for the WebSocket event
+    } catch (error) {
+        saveError.value = error?.message || 'Failed to activate registration mode.'
         isRegistering.value = false
-        showModal.value = true
-    }, 1500)
+    }
 }
 
+/** Step 6 — User clicked Save in the modal */
 const saveNewUser = async (fields) => {
     savingCard.value = true
     saveError.value = ''
-
     try {
         const card = await addCard({
-            card_name: fields.name,
-            card_role: fields.role,
+            card_name:      fields.name,
+            card_role:      fields.role,
+            card_uuid_hash: fields.card_hash,  // the real scanned RFID hash
         })
-
         users.value.unshift(cardToUser(card))
         showModal.value = false
+        scannedCardHash.value = ''
     } catch (error) {
         saveError.value = error?.message || 'Failed to register card.'
     } finally {
@@ -111,7 +121,26 @@ const saveNewUser = async (fields) => {
     }
 }
 
-onMounted(loadCards)
+// ── WebSocket — listen for registration_card_detected ─────────────────────────
+const { onEvent } = useWebSocket()
+let offEvent = null
+
+function handleWsEvent(msg) {
+    if (msg.event === 'registration_card_detected' && isRegistering.value) {
+        scannedCardHash.value = msg.card_hash
+        isRegistering.value   = false
+        showModal.value       = true
+    }
+}
+
+onMounted(() => {
+    loadCards()
+    offEvent = onEvent(handleWsEvent)
+})
+
+onUnmounted(() => {
+    offEvent?.()
+})
 </script>
 
 <template>
@@ -134,10 +163,24 @@ onMounted(loadCards)
                         <h2>AUTHORIZED USERS</h2>
                         <span class="cards-status">{{ activeCount }} ACTIVE &bull; {{ revokedCount }} REVOKED</span>
                     </div>
-                    <button class="btn-register" @click="registerCard" :disabled="isRegistering || usersLoading">
+
+                    <button
+                        class="btn-register"
+                        @click="registerCard"
+                        :disabled="isRegistering || usersLoading"
+                        :class="{ 'is-scanning': isRegistering }"
+                    >
                         <span v-if="!isRegistering">+ REGISTER CARD</span>
-                        <span v-else class="scanning">SCANNING...</span>
+                        <span v-else class="scanning-text">
+                            <span class="dot-pulse">⬤</span> WAITING FOR RFID...
+                        </span>
                     </button>
+                </div>
+
+                <!-- Scanning notice banner -->
+                <div v-if="isRegistering" class="register-notice">
+                    <span class="notice-icon">📡</span>
+                    PLACE YOUR RFID CARD ON THE READER
                 </div>
 
                 <div v-if="usersLoading" class="user-list">
@@ -149,9 +192,13 @@ onMounted(loadCards)
                 </div>
 
                 <div v-else class="user-list">
-                    <UserCard v-for="user in users" :key="user.id" :user="user" @revoke="revokeUser"
-                        @remove="removeCard" />
-
+                    <UserCard
+                        v-for="user in users"
+                        :key="user.id"
+                        :user="user"
+                        @revoke="revokeUser"
+                        @remove="removeCard"
+                    />
                     <div v-if="users.length === 0" class="empty-state">
                         NO USERS REGISTERED IN SYSTEM
                     </div>
@@ -159,14 +206,19 @@ onMounted(loadCards)
             </section>
         </main>
 
-        <!-- Registration Modal -->
-        <RegistrationModal v-if="showModal" :saving="savingCard" :error="saveError" @close="showModal = false"
-            @save="saveNewUser" />
+        <!-- Registration Modal — only appears after RFID card is detected -->
+        <RegistrationModal
+            v-if="showModal"
+            :saving="savingCard"
+            :error="saveError"
+            :cardHash="scannedCardHash"
+            @close="showModal = false; scannedCardHash = ''"
+            @save="saveNewUser"
+        />
     </div>
 </template>
 
 <style scoped>
-/* Scoped layout styles for Dashboard wrapper */
 .dashboard {
     display: flex;
     flex-direction: column;
@@ -180,7 +232,6 @@ onMounted(loadCards)
     background-size: 100% 100%, 40px 40px, 40px 40px;
 }
 
-/* Header */
 .header {
     display: flex;
     justify-content: space-between;
@@ -190,11 +241,7 @@ onMounted(loadCards)
     margin-bottom: 2rem;
 }
 
-.logo {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
+.logo { display: flex; align-items: center; gap: 10px; }
 
 .icon-pulse {
     width: 8px;
@@ -234,18 +281,10 @@ onMounted(loadCards)
 }
 
 @keyframes pulse-anim {
-    0% {
-        opacity: 0.5;
-        box-shadow: 0 0 2px var(--neon-green);
-    }
-
-    100% {
-        opacity: 1;
-        box-shadow: 0 0 12px var(--neon-green);
-    }
+    0%   { opacity: 0.5; box-shadow: 0 0 2px var(--neon-green); }
+    100% { opacity: 1;   box-shadow: 0 0 12px var(--neon-green); }
 }
 
-/* Layout */
 .main-content {
     display: flex;
     gap: 2rem;
@@ -265,11 +304,8 @@ onMounted(loadCards)
     min-width: 300px;
 }
 
-.panel-secondary {
-    max-width: 800px;
-}
+.panel-secondary { max-width: 800px; }
 
-/* Panel Header & Controls */
 .d-flex-between {
     display: flex;
     justify-content: space-between;
@@ -279,11 +315,7 @@ onMounted(loadCards)
     padding-bottom: 1rem;
 }
 
-.header-titles {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-}
+.header-titles { display: flex; align-items: center; gap: 15px; }
 
 .panel-header h2 {
     font-size: 0.85rem;
@@ -305,6 +337,7 @@ onMounted(loadCards)
     letter-spacing: 1px;
 }
 
+/* Register button */
 .btn-register {
     background: rgba(12, 255, 154, 0.1);
     border: 1px solid var(--neon-green);
@@ -318,6 +351,7 @@ onMounted(loadCards)
     letter-spacing: 1px;
     transition: all 0.2s;
     box-shadow: 0 0 10px rgba(12, 255, 154, 0.1);
+    white-space: nowrap;
 }
 
 .btn-register:hover:not(:disabled) {
@@ -325,31 +359,60 @@ onMounted(loadCards)
     box-shadow: 0 0 15px rgba(12, 255, 154, 0.3);
 }
 
-.btn-register:disabled {
-    opacity: 0.7;
-    cursor: wait;
+.btn-register.is-scanning {
     border-color: #ffcc00;
     color: #ffcc00;
     background: rgba(255, 204, 0, 0.1);
-    box-shadow: none;
+    box-shadow: 0 0 12px rgba(255, 204, 0, 0.2);
+    cursor: wait;
 }
 
-.scanning {
+.btn-register:disabled {
+    opacity: 0.85;
+    cursor: wait;
+}
+
+.scanning-text {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     animation: blink 1s infinite;
 }
 
-@keyframes blink {
-    50% {
-        opacity: 0.5;
-    }
+.dot-pulse {
+    font-size: 0.5rem;
+    animation: pulse-dot 1s infinite alternate;
 }
 
-/* User Items */
-.user-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
+@keyframes pulse-dot {
+    0%   { opacity: 0.3; }
+    100% { opacity: 1;   }
 }
+
+@keyframes blink { 50% { opacity: 0.6; } }
+
+/* Scanning notice banner */
+.register-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(255, 204, 0, 0.06);
+    border: 1px solid rgba(255, 204, 0, 0.25);
+    border-radius: 8px;
+    color: #ffcc00;
+    font-size: 0.78rem;
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: 1px;
+    font-weight: 600;
+    margin-bottom: 1.2rem;
+    animation: blink 1.5s infinite;
+}
+
+.notice-icon { font-size: 1rem; animation: none; }
+
+/* User Items */
+.user-list { display: flex; flex-direction: column; gap: 1rem; }
 
 .state-banner {
     padding: 14px 18px;
@@ -370,22 +433,17 @@ onMounted(loadCards)
     height: 79px;
     border-radius: 10px;
     background: linear-gradient(90deg,
-            rgba(0, 210, 255, 0.04) 25%,
-            rgba(0, 210, 255, 0.10) 50%,
-            rgba(0, 210, 255, 0.04) 75%);
+        rgba(0, 210, 255, 0.04) 25%,
+        rgba(0, 210, 255, 0.10) 50%,
+        rgba(0, 210, 255, 0.04) 75%);
     background-size: 800px 100%;
     animation: shimmer 1.6s infinite linear;
     border: 1px solid var(--border-color);
 }
 
 @keyframes shimmer {
-    0% {
-        background-position: -400px 0;
-    }
-
-    100% {
-        background-position: 400px 0;
-    }
+    0%   { background-position: -400px 0; }
+    100% { background-position:  400px 0; }
 }
 
 .empty-state {
